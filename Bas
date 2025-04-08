@@ -1,0 +1,300 @@
+#!/usr/bin/env python3
+# Facebook Ethical Hacking Testing Tool (FEHTT)
+
+import requests
+import socket
+import sys
+from bs4 import BeautifulSoup
+import json
+import hashlib
+import time
+
+class FacebookEthicalHacker:
+    def __init__(self, authorized_domains):
+        self.authorized_domains = authorized_domains
+        self.report = {
+            "vulnerabilities": [],
+            "scan_time": None,
+            "status": "initialized"
+        }
+        
+    def check_authorization(self, target):
+        if not any(target.endswith(domain) for domain in self.authorized_domains):
+            raise Exception("Unauthorized testing domain")
+    
+    def run_scan(self, target_url):
+        """Run a series of security tests on the target URL"""
+        start_time = time.time()
+        
+        try:
+            self.check_authorization(target_url)
+            
+            print(f"[*] Starting ethical hacking scan on {target_url}")
+            
+            # Test 1: Check for XSS vulnerabilities
+            self.test_xss(target_url)
+            
+            # Test 2: Check for SQL injection vulnerabilities
+            self.test_sql_injection(target_url)
+            
+            # Test 3: Check for CSRF protection
+            self.test_csrf(target_url)
+            
+            # Test 4: Check for insecure headers
+            self.test_http_headers(target_url)
+            
+            # Test 5: Check for directory listing
+            self.test_directory_listing(target_url)
+            
+            # Test 6: Check for sensitive files exposure
+            self.test_sensitive_files(target_url)
+            
+            self.report["status"] = "completed"
+            self.report["scan_time"] = f"{time.time() - start_time:.2f} seconds"
+            
+            self.generate_report()
+            
+        except Exception as e:
+            self.report["status"] = f"failed: {str(e)}"
+            print(f"[!] Scan failed: {str(e)}")
+    
+    def test_xss(self, url):
+        """Test for Cross-Site Scripting vulnerabilities"""
+        print("[*] Testing for XSS vulnerabilities...")
+        
+        test_payloads = [
+            "<script>alert('XSS1')</script>",
+            "<img src=x onerror=alert('XSS2')>",
+            "'\"><script>alert('XSS3')</script>"
+        ]
+        
+        vulnerable = False
+        
+        for payload in test_payloads:
+            test_url = f"{url}?testparam={payload}"
+            try:
+                response = requests.get(test_url, timeout=5)
+                if payload in response.text:
+                    vulnerable = True
+                    self.report["vulnerabilities"].append({
+                        "type": "XSS",
+                        "payload": payload,
+                        "url": test_url,
+                        "severity": "high"
+                    })
+            except:
+                continue
+                
+        if not vulnerable:
+            print("[+] No XSS vulnerabilities detected")
+    
+    def test_sql_injection(self, url):
+        """Test for SQL Injection vulnerabilities"""
+        print("[*] Testing for SQL Injection vulnerabilities...")
+        
+        test_payloads = [
+            "' OR '1'='1",
+            "' OR 1=1--",
+            "'; DROP TABLE users--"
+        ]
+        
+        vulnerable = False
+        
+        for payload in test_payloads:
+            test_url = f"{url}?userid={payload}"
+            try:
+                response = requests.get(test_url, timeout=5)
+                if "error in your SQL syntax" in response.text.lower():
+                    vulnerable = True
+                    self.report["vulnerabilities"].append({
+                        "type": "SQL Injection",
+                        "payload": payload,
+                        "url": test_url,
+                        "severity": "critical"
+                    })
+            except:
+                continue
+                
+        if not vulnerable:
+            print("[+] No SQL Injection vulnerabilities detected")
+    
+    def test_csrf(self, url):
+        """Test for CSRF protection"""
+        print("[*] Testing for CSRF protection...")
+        
+        try:
+            response = requests.get(url, timeout=5)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            forms = soup.find_all('form')
+            
+            for form in forms:
+                if not form.find('input', {'name': 'csrf_token'}) and \
+                   not form.find('input', {'name': '_token'}):
+                    self.report["vulnerabilities"].append({
+                        "type": "Potential CSRF",
+                        "details": "Missing CSRF token in form",
+                        "form_action": form.get('action', ''),
+                        "severity": "medium"
+                    })
+                    print("[!] Potential CSRF vulnerability detected")
+                    return
+                    
+            print("[+] CSRF protection mechanisms detected")
+        except:
+            print("[!] CSRF test failed")
+    
+    def test_http_headers(self, url):
+        """Test for insecure HTTP headers"""
+        print("[*] Testing HTTP headers...")
+        
+        try:
+            response = requests.get(url, timeout=5)
+            headers = response.headers
+            
+            security_headers = {
+                "X-XSS-Protection": "1; mode=block",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY or SAMEORIGIN",
+                "Content-Security-Policy": "present",
+                "Strict-Transport-Security": "present"
+            }
+            
+            missing_headers = []
+            
+            for header, expected_value in security_headers.items():
+                if header not in headers:
+                    missing_headers.append(header)
+                elif expected_value != "present" and headers[header].lower() != expected_value.lower():
+                    self.report["vulnerabilities"].append({
+                        "type": "Insecure Header",
+                        "header": header,
+                        "current_value": headers[header],
+                        "recommended_value": expected_value,
+                        "severity": "medium"
+                    })
+            
+            if missing_headers:
+                self.report["vulnerabilities"].append({
+                    "type": "Missing Security Headers",
+                    "missing_headers": missing_headers,
+                    "severity": "medium"
+                })
+                print(f"[!] Missing security headers: {', '.join(missing_headers)}")
+            else:
+                print("[+] All security headers present")
+                
+        except:
+            print("[!] HTTP headers test failed")
+    
+    def test_directory_listing(self, url):
+        """Test for directory listing vulnerabilities"""
+        print("[*] Testing for directory listing...")
+        
+        test_dirs = [
+            "uploads/",
+            "images/",
+            "assets/",
+            "js/",
+            "css/"
+        ]
+        
+        vulnerable = False
+        
+        for directory in test_dirs:
+            test_url = f"{url}/{directory}"
+            try:
+                response = requests.get(test_url, timeout=5)
+                if "Index of /" in response.text or "<title>Directory listing for /" in response.text:
+                    vulnerable = True
+                    self.report["vulnerabilities"].append({
+                        "type": "Directory Listing",
+                        "url": test_url,
+                        "severity": "low"
+                    })
+            except:
+                continue
+                
+        if not vulnerable:
+            print("[+] No directory listing vulnerabilities detected")
+    
+    def test_sensitive_files(self, url):
+        """Test for sensitive files exposure"""
+        print("[*] Testing for sensitive files...")
+        
+        sensitive_files = [
+            ".env",
+            "config.php",
+            "wp-config.php",
+            "backup.zip",
+            "database.sql",
+            "robots.txt",
+            "phpinfo.php"
+        ]
+        
+        exposed_files = []
+        
+        for filename in sensitive_files:
+            test_url = f"{url}/{filename}"
+            try:
+                response = requests.get(test_url, timeout=5)
+                if response.status_code == 200:
+                    exposed_files.append(filename)
+                    self.report["vulnerabilities"].append({
+                        "type": "Sensitive File Exposure",
+                        "file": filename,
+                        "url": test_url,
+                        "severity": "high"
+                    })
+            except:
+                continue
+                
+        if not exposed_files:
+            print("[+] No sensitive files exposed")
+        else:
+            print(f"[!] Exposed sensitive files: {', '.join(exposed_files)}")
+    
+    def generate_report(self):
+        """Generate a vulnerability report"""
+        print("\n[+] Scan completed. Generating report...")
+        
+        if not self.report["vulnerabilities"]:
+            print("[+] No vulnerabilities found!")
+        else:
+            print(f"[!] Found {len(self.report['vulnerabilities'])} vulnerabilities:")
+            for vuln in self.report["vulnerabilities"]:
+                print(f"\nType: {vuln['type']}")
+                print(f"Severity: {vuln['severity']}")
+                if 'url' in vuln:
+                    print(f"URL: {vuln['url']}")
+                if 'payload' in vuln:
+                    print(f"Payload: {vuln['payload']}")
+                if 'details' in vuln:
+                    print(f"Details: {vuln['details']}")
+        
+        # Save report to file
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"facebook_scan_report_{timestamp}.json"
+        
+        with open(filename, 'w') as f:
+            json.dump(self.report, f, indent=4)
+            
+        print(f"\n[+] Report saved to {filename}")
+
+if __name__ == "__main__":
+    # Authorized domains for testing (Facebook-owned domains only)
+    AUTHORIZED_DOMAINS = [
+        "facebook.com",
+        "fb.com",
+        "instagram.com",
+        "whatsapp.com",
+        "oculus.com"
+    ]
+    
+    if len(sys.argv) != 2:
+        print("Usage: python fehtt.py <target_url>")
+        sys.exit(1)
+    
+    target = sys.argv[1]
+    
+    hacker = FacebookEthicalHacker(AUTHORIZED_DOMAINS)
+    hacker.run_scan(target)bas
